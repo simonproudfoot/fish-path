@@ -2,17 +2,17 @@
  * Prepares texture for storing positions and normals for spline
  */
 function initTexture() {
-    if ( ! renderer.extensions.get( "OES_texture_float" ) ) {
+    if (!renderer.extensions.get("OES_texture_float")) {
         console.log("No OES_texture_float support for float textures.");
     }
 
-    if ( renderer.capabilities.maxVertexTextures === 0 ) {
+    if (renderer.capabilities.maxVertexTextures === 0) {
         console.log("No support for vertex shader textures.");
     }
 
     const height = 4;
 
-    const dataArray = new Float32Array( TEXTURE_WIDTH * height * BITS );
+    const dataArray = new Float32Array(TEXTURE_WIDTH * height * BITS);
     const dataTexture = new THREE.DataTexture(
         dataArray,
         TEXTURE_WIDTH,
@@ -38,11 +38,11 @@ function setTextureValue(index, x, y, z, o) {
     data[index * BITS + i + 2] = z;
 }
 
-function modifyShader( material ) {
+function modifyShader(material) {
     if (material.__ok) return;
     material.__ok = true;
 
-    material.onBeforeCompile = ( shader ) => {
+    material.onBeforeCompile = (shader) => {
 
         if (shader.__modified) return;
         shader.__modified = true;
@@ -109,7 +109,7 @@ function modifyShader( material ) {
         )
 
         shader.vertexShader = vertexShader
-        console.log('Current shader template', vertexShader);
+
     }
 }
 
@@ -120,9 +120,9 @@ function initPathShader() {
         // emission: 0xffffff
     });
 
-    customMaterial.map = new THREE.TextureLoader().load( "orca.png" );
+    customMaterial.map = new THREE.TextureLoader().load("orca.png");
 
-    modifyShader( customMaterial );
+    modifyShader(customMaterial);
 
     texture = initTexture();
 
@@ -139,21 +139,21 @@ function initPathShader() {
         // called when resource is loaded
         onLoad,
         // called when loading is in progresses
-        function onProgress( xhr ) {
+        function onProgress(xhr) {
 
-            console.log( ( xhr.loaded / xhr.total * 100 ) + '% loaded' );
+            console.log((xhr.loaded / xhr.total * 100) + '% loaded');
 
         },
         // called when loading has errors
-        function onError( error ) {
+        function onError(error) {
 
-            console.log( 'An error happened' );
+            console.log('An error happened');
 
         }
     );
 }
 
-function onLoad( object ) {
+function onLoad(object) {
     if (orca) scene.remove(orca);
 
     orca = object;
@@ -174,15 +174,15 @@ function onLoad( object ) {
     */
 
 
-    object.traverse( function ( child ) {
-        if ( child instanceof THREE.Mesh ) {
-            console.log('old material', child.material);
+    object.traverse(function(child) {
+        if (child instanceof THREE.Mesh) {
+
 
             // just for smooth shading
-            var geo = new THREE.Geometry().fromBufferGeometry( child.geometry );
+            var geo = new THREE.Geometry().fromBufferGeometry(child.geometry);
             geo.mergeVertices()
             geo.computeVertexNormals()
-            child.geometry = new THREE.BufferGeometry().fromGeometry( geo );
+            child.geometry = new THREE.BufferGeometry().fromGeometry(geo);
 
             // modifyShader( child.material );
 
@@ -192,7 +192,7 @@ function onLoad( object ) {
             // child.material.map = texture;
             // child.material.color = 0x000000;
         }
-    } );
+    });
 
     geoms = orca.children.map(child => child.geometry);
     bbs = geoms.map(geo => {
@@ -200,7 +200,7 @@ function onLoad( object ) {
         return geo.boundingBox;
     });
 
-    console.log('boundingbox', bbs);
+
 
     referenceGeometry.vertices[0].set(
         Math.min(...bbs.map(bb => bb.min.x)),
@@ -216,5 +216,5 @@ function onLoad( object ) {
 
     updateModel();
 
-    scene.add( object );
+    scene.add(object);
 }

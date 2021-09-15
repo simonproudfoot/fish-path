@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>three.js webgl - fish path</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+    <style>
+        body {
+            font-family: Monospace;
+            background-color: #f0f0f0;
+            margin: 0px;
+            overflow: hidden;
+        }
+        
+        #info {
+            position: absolute;
+            top: 0px;
+            width: 100%;
+            padding: 5px;
+            font-family: Monospace;
+            font-size: 13px;
+            text-align: center;
+        }
+        
+        #footer {
+            position: absolute;
+            bottom: 0px;
+            width: 100%;
+            padding: 5px;
+            font-family: Monospace;
+            font-size: 13px;
+            text-align: center;
+            color: #fff;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="container"></div>
+
+    <div id="footer">
+        <div style="padding: 2em;">
+            For more organic movement, instead of changing the euler angles on the fish; we can create a path for it to move along. Depending on the fin selection, the nodes along the path will change. TO DRAG THE MOUSE AROUND TO PAN ZOOM. CLICK THE AND DRAG THE
+            NODES TO CHANGE THE PATH
+        </div>
+    </div>
+    <script src="three.js"></script>
+    <script src="DragControls.js"></script>
+    <script src="OrbitControls.js"></script>
+    <script src="TransformControls.js"></script>
+    <script src="loader.js"></script>
+    <script src="OBJLoader.js"></script>
+    <script src="flow.js"></script>
+    <script src="dat.gui.min.js"></script>
+
+    <script>
+        var totalPoints = 4
+        var distanceBetweenPoints = 500
+        var yCurve = 5
+        var counter = 0
+        var testBox = ''
+        var BITS = 3;
+        var TEXTURE_WIDTH = 256; // points on the texture
+        var orca;
+        var texture;
+        var uniforms;
+        var bufferUniforms = {};
+        var modifierObject = new THREE.Object3D();
+        var referenceGeometry = new THREE.Geometry();
+        referenceGeometry.vertices = Array(2).fill().map(_ => new THREE.Vector3());
+        var container, stats;
+        var camera, scene, renderer;
+        var splineHelperObjects = [],
+            splineOutline;
+        var splinePointsLength = 100;
+        var positions = [];
+        var options;
+        var boxGeometry = new THREE.BoxGeometry(5, 5, 5);
+        var transformControl;
+        var ARC_SEGMENTS = 200;
+        var splineMesh;
+        var splines = {};
+        var params = {
+            path: 0,
+            flow: true,
+            uniform: false,
+            tension: 10,
+            centripetal: false,
+            chordal: true,
+            addPoint: addPoint,
+            removePoint: removePoint,
+            exportSpline: exportSpline,
+            reset: reset,
+            increaseBendY: increaseBendY,
+            increaseBendX: increaseBendX,
+            closed: false,
+            play: true,
+            scale: 50,
+            rotationX: 0,
+            rotationY: 0.5,
+            rotationZ: 0.5,
+            translateX: 0,
+            translateY: 0,
+            translateZ: 0,
+            wireframe: false,
+
+        };
+        var gif_container, gif_status, gif_progress, gif_download;
+        init();
+        animate();
+
+        function init() {
+            container = document.getElementById('container');
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color('#090c1e');
+            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 1, 10000);
+            camera.position.set(0, 150, 400);
+            scene.add(camera);
+            scene.add(new THREE.AmbientLight(0x303030));
+
+            keyLight = new THREE.DirectionalLight(0xffffff, 1.0);
+            keyLight.position.set(-100, 0, 100);
+            fillLight = new THREE.DirectionalLight(0xffffff, 0.75);
+            fillLight.position.set(100, 0, 100);
+            backLight = new THREE.DirectionalLight(0xffffff, 1.0);
+            backLight.position.set(100, 0, -100).normalize();
+            scene.add(keyLight);
+            scene.add(fillLight);
+            scene.add(backLight);
+            var planeGeometry = new THREE.PlaneGeometry(9000, 9000);
+            planeGeometry.rotateX(-Math.PI / 2);
+            var planeMaterial = new THREE.ShadowMaterial({
+                opacity: 0.1
+            });
+            var plane = new THREE.Mesh(planeGeometry, planeMaterial);
+            plane.position.y = -200;
+            plane.receiveShadow = true;
+            scene.add(plane);
+            var helper = new THREE.GridHelper(2000, 100);
+            helper.position.y = -100;
+            helper.material.opacity = 0.2;
+            helper.material.transparent = true;
+            scene.add(helper);
+
+            renderer = new THREE.WebGLRenderer({
+                antialias: true
+            });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            container.appendChild(renderer.domElement);
+            gui = new dat.GUI();
+            //   gui.add(params, 'play');
+            //  gui.add(params, 'path', 0, 1).step(0.01).onChange(function(value) {
+            //     updateUniform('pathOffset', value);
+            //  });
+            gui.add(params, 'increaseBendY');
+            gui.add(params, 'increaseBendX');
+            //     gui.add(params, 'reset');
+
+
+            // gui.add(params, 'scale', 0.1, 400).step(0.01).onChange(updateModel);
+            gui.open();
+            // Controls
+            var controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.damping = 0.2;
+            controls.addEventListener('change', render);
+            controls.addEventListener('start', function() {
+                cancelHideTransorm();
+            });
+            controls.addEventListener('end', function() {
+                delayHideTransform();
+            });
+            transformControl = new THREE.TransformControls(camera, renderer.domElement);
+            transformControl.addEventListener('change', render);
+            scene.add(transformControl);
+            // Hiding transform situation is a little in a mess :()
+            transformControl.addEventListener('change', function(e) {
+                cancelHideTransorm();
+            });
+            transformControl.addEventListener('mouseDown', function(e) {
+                cancelHideTransorm();
+            });
+            transformControl.addEventListener('mouseUp', function(e) {
+                delayHideTransform();
+            });
+            transformControl.addEventListener('objectChange', function(e) {
+                updateSplineOutline();
+            });
+            var dragcontrols = new THREE.DragControls(splineHelperObjects, camera, renderer.domElement); //
+            dragcontrols.enabled = false;
+            dragcontrols.addEventListener('hoveron', function(event) {
+
+                transformControl.attach(event.object);
+                cancelHideTransorm();
+            });
+            dragcontrols.addEventListener('hoveroff', function(event) {
+                delayHideTransform();
+            });
+            var hiding;
+
+            function delayHideTransform() {
+                cancelHideTransorm();
+                hideTransform();
+            }
+
+            function hideTransform() {
+                hiding = setTimeout(function() {
+                    transformControl.detach(transformControl.object);
+                }, 2500)
+            }
+
+            function cancelHideTransorm() {
+                if (hiding) clearTimeout(hiding);
+            }
+            /*******
+             * Curves
+             *********/
+            for (var i = 0; i < splinePointsLength; i++) {
+                addSplineObject(positions[i]);
+            }
+            positions = [];
+            for (var i = 0; i < splinePointsLength; i++) {
+                positions.push(splineHelperObjects[i].position);
+            }
+            var geometry = new THREE.Geometry();
+            for (var i = 0; i < ARC_SEGMENTS; i++) {
+                geometry.vertices.push(new THREE.Vector3());
+            }
+            var curve = new THREE.CatmullRomCurve3(positions);
+            curve.curveType = 'catmullrom';
+            curve.mesh = new THREE.Line(geometry.clone(), new THREE.LineBasicMaterial({
+                color: '#006ee6',
+                opacity: 0.35,
+                linewidth: 2
+            }));
+            curve.mesh.castShadow = true;
+            splines.uniform = curve;
+            curve = new THREE.CatmullRomCurve3(positions, true);
+            curve.curveType = 'centripetal';
+            curve.mesh = new THREE.Line(geometry.clone(), new THREE.LineBasicMaterial({
+                color: '#006ee6',
+                opacity: 0.35,
+                linewidth: 2
+            }));
+            curve.mesh.castShadow = true;
+            curve.closed = false;
+            splines.centripetal = curve;
+            curve = new THREE.CatmullRomCurve3(positions);
+            curve.curveType = 'chordal';
+            curve.mesh = new THREE.Line(geometry.clone(), new THREE.LineBasicMaterial({
+                color: '#006ee6',
+                opacity: 0.35,
+                linewidth: 2
+            }));
+            curve.mesh.castShadow = true;
+            splines.chordal = curve;
+            for (var k in splines) {
+                var spline = splines[k];
+                scene.add(spline.mesh);
+            }
+            var controlPoints = [];
+            for (var i = 0; i < 5; i++) {
+                var angle = i / 5 * Math.PI * 2;
+                controlPoints.push(
+                    new THREE.Vector3(Math.cos(angle) * 600, Math.random() * 800 - 300, Math.sin(angle) * 600)
+                )
+            }
+            addPoints(10, 100) // how many, distance between
+
+
+        }
+
+        function increasePoints() {
+
+        }
+
+        function addPoints(totalPoints, distanceBetweenPoints) {
+            // SP - SET INITAL LOCATIONS
+            var points = []
+            var inital = totalPoints * distanceBetweenPoints / 1.8
+            var startPoint = -Math.abs(inital);
+            var i;
+            for (i = 0; i < totalPoints; i++) { //starts loop
+                startPoint = startPoint + distanceBetweenPoints
+                points.push(new THREE.Vector3(startPoint, 0, 0))
+            };
+            load(points);
+            initPathShader()
+            splinePosHelper = makeBox()
+            scene.add(splinePosHelper)
+        }
+
+        /****************************/
+
+        function updateModel() {
+            modifierObject.scale.setScalar(params.scale)
+            modifierObject.rotation.x = 0
+            modifierObject.rotation.y = params.rotationY * Math.PI;
+            modifierObject.rotation.z = params.rotationZ * Math.PI; // this
+            modifierObject.position.x = -200;
+            modifierObject.position.y = 130;
+            modifierObject.position.z = params.translateZ;
+
+            orca.matrixAutoUpdate = false
+            modifierObject.updateMatrix()
+            orca.matrix.copy(modifierObject.matrix);
+            moo = referenceGeometry.clone().applyMatrix(modifierObject.matrix)
+
+            // use x-axis aligned
+            min = Math.min(...moo.vertices.map(v => v.x))
+            len = Math.max(...moo.vertices.map(v => v.x)) - min
+
+            updateUniform('spineOffset', -min);
+            updateUniform('spineLength', len);
+            updateSplineOutline()
+                // customMaterial.wireframe = params.wireframe;
+        }
+
+        function updateUniform(name, v) {
+            if (!uniforms) {
+                bufferUniforms[name] = v;
+                return
+            }
+            uniforms[name].value = v;
+        }
+
+        function updateSplineTexture() {
+            if (!texture) return;
+            splines.centripetal.arcLengthDivisions = 200;
+            splines.centripetal.updateArcLengths()
+            splineLen = splines.centripetal.getLength()
+            var pathSegment = len / splineLen // should clam max to 1
+                // updateUniform('spineOffset', 0);
+            updateUniform('pathSegment', pathSegment);
+            var splineCurve = splines.centripetal;
+            // uniform chordal centripetal
+            var points = splineCurve.getSpacedPoints(TEXTURE_WIDTH - 1);
+            // getPoints() - unequal arc lengths
+            var frenetFrames = splineCurve.computeFrenetFrames(TEXTURE_WIDTH - 1, params.closed);
+            // console.log(frenetFrames);
+            // console.log('points', points);
+            for (var i = 0; i < TEXTURE_WIDTH; i++) {
+                var pt = points[i];
+                setTextureValue(i, pt.x, pt.y, pt.z, 0);
+                pt = frenetFrames.tangents[i];
+                setTextureValue(i, pt.x, pt.y, pt.z, 1);
+                pt = frenetFrames.normals[i];
+                setTextureValue(i, pt.x, pt.y, pt.z, 2);
+                pt = frenetFrames.binormals[i];
+                setTextureValue(i, pt.x, pt.y, pt.z, 3);
+            }
+            texture.needsUpdate = true;
+        }
+
+        function makeBox(position) {
+            var material = new THREE.MeshLambertMaterial({
+                color: Math.random() * 0xffffff
+            });
+            var object = new THREE.Mesh(boxGeometry, material);
+            if (position) {
+                object.position.copy(position);
+            } else {
+                object.position.x = Math.random() * 1000 - 500;
+                object.position.y = Math.random() * 600;
+                object.position.z = Math.random() * 800 - 400;
+            }
+            object.castShadow = true;
+            object.receiveShadow = true;
+            // SP UNCOMMENT TO SE POINTS
+            scene.add(object);
+            return object;
+        }
+
+        function addSplineObject(position) {
+            var object = makeBox(position);
+            splineHelperObjects.push(object);
+            return object;
+        }
+
+        function addPoint() {
+            splinePointsLength++;
+            positions.push(addSplineObject().position);
+            updateSplineOutline();
+        }
+
+        function removePoint() {
+            if (splinePointsLength <= 4) {
+                return;
+            }
+            splinePointsLength--;
+            positions.pop();
+            scene.remove(splineHelperObjects.pop());
+            updateSplineOutline();
+        }
+
+        function updateSplineOutline() {
+            for (var k in splines) {
+                var spline = splines[k];
+                splineMesh = spline.mesh;
+                for (var i = 0; i < ARC_SEGMENTS; i++) {
+                    var p = splineMesh.geometry.vertices[i];
+                    var t = i / (ARC_SEGMENTS - 1);
+                    spline.getPoint(t, p);
+                }
+                splineMesh.geometry.verticesNeedUpdate = true;
+            }
+            updateSplineTexture();
+        }
+        // SP - bend the points
+        function increaseBendY() {
+            for (var i = 0; i < splineHelperObjects.length; i++) {
+                if (i % 2 !== 0) {
+                    splineHelperObjects[i].rotation.x = splineHelperObjects[i].rotation.x - yCurve
+                    splineHelperObjects[i].position.y = splineHelperObjects[i].position.y - yCurve
+                } else {
+                    splineHelperObjects[i].rotation.x = splineHelperObjects[i].rotation.x + yCurve
+                    splineHelperObjects[i].position.y = splineHelperObjects[i].position.y + yCurve
+                }
+            }
+
+            updateSplineOutline()
+        }
+        // SP - bend the points
+        function increaseBendX() {
+            for (var i = 3; i < splineHelperObjects.length; i++) {
+                if (i % 2 !== 0) {
+
+                    splineHelperObjects[i].position.z = splineHelperObjects[i].position.z - yCurve
+                } else {
+                    splineHelperObjects[i].position.z = splineHelperObjects[i].position.z + yCurve
+                }
+            }
+
+            updateSplineOutline()
+
+        }
+
+
+        function reset() {
+            for (var i = 3; i < splineHelperObjects.length; i++) {
+                splineHelperObjects[i].position.z = 0
+                splineHelperObjects[i].position.y = 0
+            }
+            updateSplineOutline()
+        }
+
+        function exportSpline() {
+            var strplace = [];
+            for (var i = 0; i < splinePointsLength; i++) {
+                var p = splineHelperObjects[i].position;
+                strplace.push(`new THREE.Vector3(${p.x}, ${p.y}, ${p.z})`)
+            }
+            var code = '[' + (strplace.join(',\n\t')) + ']';
+            prompt('copy and paste code', code);
+        }
+
+        function load(new_positions) {
+            while (new_positions.length > positions.length) {
+                addPoint();
+            }
+            while (new_positions.length < positions.length) {
+                removePoint();
+            }
+            for (var i = 0; i < positions.length; i++) {
+                positions[i].copy(new_positions[i]);
+            }
+            updateSplineOutline();
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            render();
+            //transformControl.update();
+            if (params.play) {
+                if (params.path < 0.6) {
+
+                    params.path += 0.0011;
+
+                    params.path %= 1;
+                    gui.updateDisplay();
+                    updateUniform('pathOffset', params.path);
+                    splinePosHelper.position.copy(
+                        splines.centripetal.getPointAt(params.path)
+                    )
+                } else {
+                    params.path = 0
+                }
+            }
+        }
+
+        function render() {
+            splines.uniform.mesh.visible = params.uniform;
+            splines.centripetal.mesh.visible = params.centripetal;
+            splines.chordal.mesh.visible = params.chordal;
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+
+</html>
